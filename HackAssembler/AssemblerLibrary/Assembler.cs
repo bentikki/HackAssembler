@@ -71,9 +71,12 @@ namespace HackAssembler.AssemblerLibrary
 
             // Set output array to contain the lines needed.
             string[] outputLinesRaw = this.GetStrippedInputLinesFromFile(this.InputFile.FullName);
-            
+
             // Assemble the lines using the lookup tables. Output translated commands in binary.
-            string[] translatedLines = this.AssembleLines(outputLinesRaw);
+            string[] rawLinesWithSymbolsTranslated = this.TranslateLineSymbols(outputLinesRaw);
+
+            // Assemble the lines using the lookup tables. Output translated commands in binary.
+            string[] translatedLines = this.AssembleLines(rawLinesWithSymbolsTranslated);
 
             // Write the lines to the output file.
             this.WriteLinesToOutputFile(translatedLines);
@@ -145,7 +148,10 @@ namespace HackAssembler.AssemblerLibrary
                                 throw new Exception($"Line number:{lineNumber} is only a comment.");
                             }
 
+                            // Trim the line to remove unwanted spaces.
                             outputLineToAdd = outputLineToAdd.Trim();
+
+                            // Add string line to outputLinesRaw list, to be returned.
                             outputLinesRaw.Add(outputLineToAdd);
                         }
                         catch (Exception e)
@@ -166,6 +172,134 @@ namespace HackAssembler.AssemblerLibrary
             }
 
             return outputLinesRaw.ToArray();
+        }
+
+        private string[] TranslateLineSymbols(string[] linesBeforeSymbols)
+        {
+            List<string> linesWithoutSymbols = new List<string>();
+            List<string> linesWithTranslatedSymbols = new List<string>();
+            Dictionary<string, long> labelReferenceLookup = new Dictionary<string, long>();
+            Dictionary<string, long> labelReferenceLookupAfterAdjust = new Dictionary<string, long>();
+            Dictionary<string, long> addedVariablesLookup = new Dictionary<string, long>();
+            Dictionary<string, long> addedVariablesLookupAfterAdjust = new Dictionary<string, long>();
+            long outputLineNumber = 0;
+            long labelLineNumber = 0;
+            long customVariablesCounter = 16;
+
+            try
+            {
+                foreach (string outputRawLine in linesBeforeSymbols)
+                {
+                    string outputRawLineToAdd = outputRawLine;
+                    bool addLineToCheck = true;
+
+                    // Check if the line contains a label.
+                    if (outputRawLineToAdd.Contains("(") && outputRawLineToAdd.Contains(")"))
+                    {
+                        // The line contains a label.
+                        // Remove the brackets from the string.
+                        outputRawLineToAdd = outputRawLineToAdd.Replace("(", "");
+                        outputRawLineToAdd = outputRawLineToAdd.Replace(")", "");
+
+                        // Add this to the label reference table.
+                        labelReferenceLookup.Add(outputRawLineToAdd, labelLineNumber);
+                        addLineToCheck = false;
+                    }
+                    else
+                    {
+                        labelLineNumber++;
+                    }
+
+                    if (addLineToCheck)
+                        linesWithoutSymbols.Add(outputRawLineToAdd);
+
+                    
+                }
+            }
+            catch (Exception e)
+            {
+                throw new Exception("An error occured while translating labels. Line:" + outputLineNumber, e);
+            }
+
+            //int lookupAdjust = labelReferenceLookup.Count;
+            //foreach (var reference in labelReferenceLookup)
+            //{
+            //    labelReferenceLookupAfterAdjust.Add(reference.Key, reference.Value - lookupAdjust);
+            //}
+
+            //labelReferenceLookup = labelReferenceLookupAfterAdjust;
+
+
+            try
+            {
+                foreach (string outputRawLine in linesWithoutSymbols)
+                {
+                    string outputRawLineToAdd = outputRawLine;
+
+                    // Check if line is an A-Instruction.
+                    // This is done to catch labels., and add them to the lookup table.
+                    if (this.LineIsAInstruction(outputRawLine))
+                    {
+                        string aInstructionValue = outputRawLine.Substring(1);
+
+                        if (addedVariablesLookup.ContainsKey(aInstructionValue))
+                        {
+                            outputRawLineToAdd = "@" + addedVariablesLookup[aInstructionValue];
+                        }
+                        else
+                        {
+                            // Try to translate the A instruction bits. 
+                            // This will throw an exception if the value is unkown,
+                            // which will show that its a custom value.
+                            try
+                            {
+                                this.TranslateAinstructionBits(aInstructionValue);
+                            }
+                            catch (ArgumentException)
+                            {
+
+                                // Handle the argument exception only - this warns that the value could not be found in lookup.
+                                if (aInstructionValue.All(c => Char.IsLetterOrDigit(c) || c == '_' || c == '.' || c == '$' ))
+                                {
+                                    long counterToAdd;
+                                    // Check if it exists in label table first TODO
+                                    if (labelReferenceLookup.ContainsKey(aInstructionValue))
+                                    {
+                                        counterToAdd = labelReferenceLookup[aInstructionValue];
+                                    }
+                                    else
+                                    {
+                                        // If it passes the check, add it back into the lines, with a custom number.
+                                        counterToAdd = customVariablesCounter;
+
+                                        // Add the variable to the lookup table.
+                                        addedVariablesLookup.Add(aInstructionValue, counterToAdd);
+                                        
+                                        customVariablesCounter++;
+                                    }
+
+                                    outputRawLineToAdd = "@" + counterToAdd;
+                                }
+                            }
+                        }
+
+
+                        
+
+                    }
+
+
+                    linesWithTranslatedSymbols.Add(outputRawLineToAdd);
+
+                    outputLineNumber++;
+                }
+            }
+            catch (Exception e)
+            {
+                throw new Exception("An error occured while translating symbols. Line:" + outputLineNumber, e);
+            }
+
+            return linesWithTranslatedSymbols.ToArray();
         }
 
         /// <summary>
@@ -197,54 +331,60 @@ namespace HackAssembler.AssemblerLibrary
 
         private string AssembleSingleLine(string outputRaw, long outputLineNumber)
         {
-            Program.DisplayMessage("Currently assembling line:" + outputLineNumber);
-
             string outputLineBin = outputRaw;
             // Translate the assemply to binary.
-
-            // Check if the line is an A-instruction
-            if (outputLineBin.Substring(0, 1) == "@")
+            try
             {
-                string aInstructionValue = outputLineBin.Substring(1);
-                outputLineBin = this.TranslateAinstructionBits(aInstructionValue);
+                // Check if the line is an A-instruction
+                if (this.LineIsAInstruction(outputLineBin))
+                {
+                    string aInstructionValue = outputLineBin.Substring(1);
+                    outputLineBin = this.TranslateAinstructionBits(aInstructionValue);
+                }
+                else
+                {
+                    // The line is not an A-Instruction.
+                    // Must therefore be a C-Instruction.
+                    string cInstructionBinaryFull = string.Empty;
+
+                    // Set default value.
+                    string cLeadingBits = "111";
+                    string cMappingBit = "0";
+                    string cCompBits = "000000";
+                    string cDestBits = "000";
+                    string cJumpBits = "000";
+
+                    // Check if the C-Instruction contains DEST
+                    if (outputLineBin.Contains("="))
+                    {
+                        string[] destArray = outputLineBin.Split("=");
+                        cDestBits = this.TranslateToDestBits(destArray[0]);
+                        outputLineBin = destArray[1];
+                    }
+
+                    // Check if the C-Instruction contains JMP
+                    if (outputLineBin.Contains(";"))
+                    {
+                        string[] destArray = outputLineBin.Split(";");
+                        cJumpBits = this.TranslateToJumpBits(destArray[1]);
+                        outputLineBin = destArray[0];
+                    }
+
+                    // Run the remaining through COMP bits
+                    cCompBits = this.TranslateToCompBits(outputLineBin);
+                    cMappingBit = this.CMappingBitValueState;
+
+                    cInstructionBinaryFull = cLeadingBits + cMappingBit + cCompBits + cDestBits + cJumpBits;
+
+                    outputLineBin = cInstructionBinaryFull;
+                }
             }
-            else
+            catch (Exception e)
             {
-                // The line is not an A-Instruction.
-                // Must therefore be a C-Instruction.
-                string cInstructionBinaryFull = string.Empty;
 
-                // Set default value.
-                string cLeadingBits = "111";
-                string cMappingBit = "0";
-                string cCompBits = "000000";
-                string cDestBits = "000";
-                string cJumpBits = "000";
-
-                // Check if the C-Instruction contains DEST
-                if (outputLineBin.Contains("="))
-                {
-                    string[] destArray = outputLineBin.Split("=");
-                    cDestBits = this.TranslateToDestBits(destArray[0]);
-                    outputLineBin = destArray[1];
-                }
-
-                // Check if the C-Instruction contains JMP
-                if (outputLineBin.Contains(";"))
-                {
-                    string[] destArray = outputLineBin.Split(";");
-                    cJumpBits = this.TranslateToJumpBits(destArray[1]);
-                    outputLineBin = destArray[0];
-                }
-
-                // Run the remaining through COMP bits
-                cCompBits = this.TranslateToCompBits(outputLineBin);
-                cMappingBit = this.CMappingBitValueState;
-
-                cInstructionBinaryFull = cLeadingBits + cMappingBit + cCompBits + cDestBits + cJumpBits;
-
-                outputLineBin = cInstructionBinaryFull;
+                throw e;
             }
+            
             return outputLineBin;
         }
 
@@ -269,6 +409,24 @@ namespace HackAssembler.AssemblerLibrary
             {
                 throw new Exception("An error occured while writing to Output file.", e);
             }
+        }
+
+        /// <summary>
+        /// Checks if line is an A-Instruction.
+        /// Returns true if it is, false if not.
+        /// </summary>
+        /// <param name="lineToCheck">Line to check, in string format.</param>
+        /// <returns>Bool true if it is an A-Instruction, false if not</returns>
+        private bool LineIsAInstruction(string lineToCheck)
+        {
+            bool lineIsAInstruction = false;
+            
+            if(lineToCheck.Substring(0, 1) == "@")
+            {
+                lineIsAInstruction = true;
+            }
+
+            return lineIsAInstruction;
         }
 
         private string TranslateAinstructionBits(string assemplyValue)

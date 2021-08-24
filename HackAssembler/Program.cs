@@ -14,28 +14,30 @@ namespace HackAssembler
 
             bool loopProgram = true;
 
-            while (loopProgram)
+            Console.WriteLine("Input ASM files found:");
+            // Go through all available files.
+            foreach (var file in assembler.AvailableInputFiles)
             {
-
-                Console.WriteLine("Input ASM files found:");
-                // Go through all available files.
-                foreach (var file in assembler.AvailableInputFiles)
-                {
-                    Console.WriteLine(file.Name);
-                }
-                Console.WriteLine();
-
-                // Show the content of the file.
-                foreach (var inputFile in assembler.AvailableInputFiles)
-                {
-                    assembler.AssembleSingleFile(inputFile);
-                }
-
-                // End repeater
-                Console.WriteLine();
-                Console.WriteLine("Press any key to repeat...");
-                Console.ReadKey();
+                Console.WriteLine(file.Name);
             }
+            Console.WriteLine();
+
+            // Show the content of the file.
+            foreach (var inputFile in assembler.AvailableInputFiles)
+            {
+                Console.WriteLine(inputFile.Name + " -- Starting assembling...");
+                assembler.AssembleSingleFile(inputFile);
+                Console.WriteLine(inputFile.Name + " -- Assembling finished...");
+                Console.WriteLine();
+            }
+
+            // End repeater
+            Console.WriteLine();
+            Console.WriteLine("Done...");
+            Console.ReadKey();
+            Console.WriteLine("Exiting...");
+            Console.ReadKey();
+
         }
 
         public static async void DisplayMessage(string message)
