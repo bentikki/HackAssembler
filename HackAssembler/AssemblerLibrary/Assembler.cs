@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -27,6 +28,8 @@ namespace HackAssembler.AssemblerLibrary
         private long outputLineNumber;
 
         // Startup file folders.
+        // ASM files must be placed in inputDirectory: D:\Nand2Tetris\Assembler\HackAssembler\HackAssembler\FileDir\INPUT_ASM
+        // Output .hack files will then be placed in outputDirectory: D:\Nand2Tetris\Assembler\HackAssembler\HackAssembler\FileDir\OUTPUT_BINARY
         private DirectoryInfo inputDirectory;
         private DirectoryInfo outputDirectory;
 
@@ -36,9 +39,9 @@ namespace HackAssembler.AssemblerLibrary
         public string CMappingBitValueState { get; private set; }
         public FileInfo[] AvailableInputFiles { get; private set; }
 
-        public Assembler()
+        public Assembler(string inputDirectory, string outputDirectory)
         {
-            this.CreateStartupDirectories();
+            this.CreateStartupDirectories(inputDirectory, outputDirectory);
             this.CreateLookUpTables();
             this.AvailableInputFiles = this.GetAvailableInputFiles();
         }
@@ -68,18 +71,44 @@ namespace HackAssembler.AssemblerLibrary
         public void AssembleSingleFile(FileInfo inputFile)
         {
             this.InputFile = inputFile;
+            
+            // Starting stopwatch to benchmark.
+            Stopwatch stopwatch = new Stopwatch();
 
+            Program.DisplayMessage("Starting file stripping...");
+            stopwatch.Start();
             // Set output array to contain the lines needed.
             string[] outputLinesRaw = this.GetStrippedInputLinesFromFile(this.InputFile.FullName);
+            stopwatch.Stop();
+            Program.DisplayMessage("File stripping done...");
+            Program.DisplayMessage("Time taken: " + stopwatch.Elapsed);
+            stopwatch.Reset();
 
+            Program.DisplayMessage("Translation of symbols startet...");
+            stopwatch.Start();
             // Assemble the lines using the lookup tables. Output translated commands in binary.
             string[] rawLinesWithSymbolsTranslated = this.TranslateLineSymbols(outputLinesRaw);
+            stopwatch.Stop();
+            Program.DisplayMessage("Translation of symbols done...");
+            Program.DisplayMessage("Time taken: " + stopwatch.Elapsed);
+            stopwatch.Reset();
 
+            Program.DisplayMessage("Assembling of lines startet...");
+            stopwatch.Start();
             // Assemble the lines using the lookup tables. Output translated commands in binary.
             string[] translatedLines = this.AssembleLines(rawLinesWithSymbolsTranslated);
+            stopwatch.Stop();
+            Program.DisplayMessage("Assembling of lines done...");
+            Program.DisplayMessage("Time taken: " + stopwatch.Elapsed);
+            stopwatch.Reset();
 
+            Program.DisplayMessage("Writing to file startet...");
+            stopwatch.Start();
             // Write the lines to the output file.
             this.WriteLinesToOutputFile(translatedLines);
+            stopwatch.Stop();
+            Program.DisplayMessage("Writing to file done...");
+            Program.DisplayMessage("Time taken: " + stopwatch.Elapsed);
         }
 
         /// <summary>
@@ -221,14 +250,6 @@ namespace HackAssembler.AssemblerLibrary
                 throw new Exception("An error occured while translating labels. Line:" + outputLineNumber, e);
             }
 
-            //int lookupAdjust = labelReferenceLookup.Count;
-            //foreach (var reference in labelReferenceLookup)
-            //{
-            //    labelReferenceLookupAfterAdjust.Add(reference.Key, reference.Value - lookupAdjust);
-            //}
-
-            //labelReferenceLookup = labelReferenceLookupAfterAdjust;
-
 
             try
             {
@@ -251,43 +272,39 @@ namespace HackAssembler.AssemblerLibrary
                             // Try to translate the A instruction bits. 
                             // This will throw an exception if the value is unkown,
                             // which will show that its a custom value.
-                            try
+                            //
+                            // TODO: Remove the try/catch part to improve performance.
+                            if (!Int16.TryParse(aInstructionValue, out short intValueResult))
                             {
-                                this.TranslateAinstructionBits(aInstructionValue);
-                            }
-                            catch (ArgumentException)
-                            {
-
-                                // Handle the argument exception only - this warns that the value could not be found in lookup.
-                                if (aInstructionValue.All(c => Char.IsLetterOrDigit(c) || c == '_' || c == '.' || c == '$' ))
+                                if (!this.predefinedLookupTable.ContainsKey(aInstructionValue))
                                 {
-                                    long counterToAdd;
-                                    // Check if it exists in label table first TODO
-                                    if (labelReferenceLookup.ContainsKey(aInstructionValue))
+                                    // Handle the argument exception only - this warns that the value could not be found in lookup.
+                                    if (aInstructionValue.All(c => Char.IsLetterOrDigit(c) || c == '_' || c == '.' || c == '$'))
                                     {
-                                        counterToAdd = labelReferenceLookup[aInstructionValue];
-                                    }
-                                    else
-                                    {
-                                        // If it passes the check, add it back into the lines, with a custom number.
-                                        counterToAdd = customVariablesCounter;
+                                        long counterToAdd;
+                                        // Check if it exists in label table first.
+                                        if (labelReferenceLookup.ContainsKey(aInstructionValue))
+                                        {
+                                            counterToAdd = labelReferenceLookup[aInstructionValue];
+                                        }
+                                        else
+                                        {
+                                            // If it passes the check, add it back into the lines, with a custom number.
+                                            counterToAdd = customVariablesCounter;
 
-                                        // Add the variable to the lookup table.
-                                        addedVariablesLookup.Add(aInstructionValue, counterToAdd);
-                                        
-                                        customVariablesCounter++;
-                                    }
+                                            // Add the variable to the lookup table.
+                                            addedVariablesLookup.Add(aInstructionValue, counterToAdd);
 
-                                    outputRawLineToAdd = "@" + counterToAdd;
+                                            customVariablesCounter++;
+                                        }
+
+                                        outputRawLineToAdd = "@" + counterToAdd;
+                                    }
                                 }
                             }
+
                         }
-
-
-                        
-
                     }
-
 
                     linesWithTranslatedSymbols.Add(outputRawLineToAdd);
 
@@ -458,19 +475,16 @@ namespace HackAssembler.AssemblerLibrary
         {
             string resultFromCompLookup = string.Empty;
 
-            try
+            if (this.compLookupTableA0.ContainsKey(assemplyKey))
             {
-                resultFromCompLookup = this.GetBitsFromLookup("COMPA0", assemplyKey, this.compLookupTableA0);
                 this.CMappingBitValueState = "0";
+                resultFromCompLookup = this.compLookupTableA0[assemplyKey];
             }
-            catch (Exception) { }
-
-            try
+            if (this.compLookupTableA1.ContainsKey(assemplyKey))
             {
-                resultFromCompLookup = this.GetBitsFromLookup("COMPA1", assemplyKey, this.compLookupTableA1);
                 this.CMappingBitValueState = "1";
+                resultFromCompLookup = this.compLookupTableA1[assemplyKey];
             }
-            catch (Exception) { }
 
             if (resultFromCompLookup == string.Empty)
                 throw new ArgumentException($"COMP lookup table does not contain a definition for: {assemplyKey}");
@@ -490,13 +504,13 @@ namespace HackAssembler.AssemblerLibrary
         /// <summary>
         /// Creates the start directories.
         /// </summary>
-        private void CreateStartupDirectories()
+        private void CreateStartupDirectories(string inputDirectory, string outputDirectory)
         {
             // Create file folders.
-            string inputDirectoryPath = @"D:\Nand2Tetris\Assembler\HackAssembler\HackAssembler\FileDir\INPUT_ASM";
+            string inputDirectoryPath = inputDirectory;
             this.inputDirectory = Directory.CreateDirectory(inputDirectoryPath);
 
-            string outputDirectoryPath = @"D:\Nand2Tetris\Assembler\HackAssembler\HackAssembler\FileDir\OUTPUT_BINARY";
+            string outputDirectoryPath = outputDirectory;
             this.outputDirectory = Directory.CreateDirectory(outputDirectoryPath);
         }
 
