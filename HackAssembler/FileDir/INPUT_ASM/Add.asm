@@ -5,9 +5,9 @@
 
 // Computes R0 = 2 + 3  (R0 refers to RAM[0])
 
-@2 // Test of inline Comment
+@2
 D=A
-@R3
+@3
 D=D+A
 @0
 M=D

@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace HackAssembler.AssemblerLibrary
 {
@@ -18,6 +21,10 @@ namespace HackAssembler.AssemblerLibrary
 
         // Current outputfile
         private FileInfo InputFile;
+
+        // Current output lines
+        private List<string> outputLines;
+        private long outputLineNumber;
 
         // Startup file folders.
         private DirectoryInfo inputDirectory;
@@ -161,6 +168,11 @@ namespace HackAssembler.AssemblerLibrary
             return outputLinesRaw.ToArray();
         }
 
+        /// <summary>
+        /// Assembles the lines, converting assemply to 16 bit via lookup tables.
+        /// </summary>
+        /// <param name="rawLines">The raw lines, without spaces and comments.</param>
+        /// <returns>String array with assembled lines in bit.</returns>
         private string[] AssembleLines(string[] rawLines)
         {
             // Create string list to contain translated lines.
@@ -171,55 +183,7 @@ namespace HackAssembler.AssemblerLibrary
             {
                 foreach (string outputRaw in rawLines)
                 {
-
-                    string outputLineBin = outputRaw;
-
-                    // Translate the assemply to binary.
-
-                    // Check if the line is an A-instruction
-                    if (outputLineBin.Substring(0, 1) == "@")
-                    {
-                        string aInstructionValue = outputLineBin.Substring(1);
-                        outputLineBin = this.TranslateAinstructionBits(aInstructionValue);
-                    }
-                    else
-                    {
-                        // The line is not an A-Instruction.
-                        // Must therefore be a C-Instruction.
-                        string cInstructionBinaryFull = string.Empty;
-
-                        // Set default value.
-                        string cLeadingBits = "111";
-                        string cMappingBit = "0";
-                        string cCompBits = "000000";
-                        string cDestBits = "000";
-                        string cJumpBits = "000";
-
-                        // Check if the C-Instruction contains DEST
-                        if (outputLineBin.Contains("="))
-                        {
-                            string[] destArray = outputLineBin.Split("=");
-                            cDestBits = this.TranslateToDestBits(destArray[0]);
-                            outputLineBin = destArray[1];
-                        }
-
-                        // Check if the C-Instruction contains JMP
-                        if (outputLineBin.Contains(";"))
-                        {
-                            string[] destArray = outputLineBin.Split(";");
-                            cJumpBits = this.TranslateToJumpBits(destArray[1]);
-                            outputLineBin = destArray[0];
-                        }
-
-                        // Run the remaining through COMP bits
-                        cCompBits = this.TranslateToCompBits(outputLineBin);
-                        cMappingBit = this.CMappingBitValueState;
-
-                        cInstructionBinaryFull = cLeadingBits + cMappingBit + cCompBits + cDestBits + cJumpBits;
-
-                        outputLineBin = cInstructionBinaryFull;
-                    }
-                    outputLines.Add(outputLineBin);
+                    outputLines.Add(this.AssembleSingleLine(outputRaw, outputLineNumber));
                     outputLineNumber++;
                 }
             }
@@ -229,6 +193,59 @@ namespace HackAssembler.AssemblerLibrary
             }
             
             return outputLines.ToArray();
+        }
+
+        private string AssembleSingleLine(string outputRaw, long outputLineNumber)
+        {
+            Program.DisplayMessage("Currently assembling line:" + outputLineNumber);
+
+            string outputLineBin = outputRaw;
+            // Translate the assemply to binary.
+
+            // Check if the line is an A-instruction
+            if (outputLineBin.Substring(0, 1) == "@")
+            {
+                string aInstructionValue = outputLineBin.Substring(1);
+                outputLineBin = this.TranslateAinstructionBits(aInstructionValue);
+            }
+            else
+            {
+                // The line is not an A-Instruction.
+                // Must therefore be a C-Instruction.
+                string cInstructionBinaryFull = string.Empty;
+
+                // Set default value.
+                string cLeadingBits = "111";
+                string cMappingBit = "0";
+                string cCompBits = "000000";
+                string cDestBits = "000";
+                string cJumpBits = "000";
+
+                // Check if the C-Instruction contains DEST
+                if (outputLineBin.Contains("="))
+                {
+                    string[] destArray = outputLineBin.Split("=");
+                    cDestBits = this.TranslateToDestBits(destArray[0]);
+                    outputLineBin = destArray[1];
+                }
+
+                // Check if the C-Instruction contains JMP
+                if (outputLineBin.Contains(";"))
+                {
+                    string[] destArray = outputLineBin.Split(";");
+                    cJumpBits = this.TranslateToJumpBits(destArray[1]);
+                    outputLineBin = destArray[0];
+                }
+
+                // Run the remaining through COMP bits
+                cCompBits = this.TranslateToCompBits(outputLineBin);
+                cMappingBit = this.CMappingBitValueState;
+
+                cInstructionBinaryFull = cLeadingBits + cMappingBit + cCompBits + cDestBits + cJumpBits;
+
+                outputLineBin = cInstructionBinaryFull;
+            }
+            return outputLineBin;
         }
 
         /// <summary>
@@ -253,7 +270,6 @@ namespace HackAssembler.AssemblerLibrary
                 throw new Exception("An error occured while writing to Output file.", e);
             }
         }
-
 
         private string TranslateAinstructionBits(string assemplyValue)
         {
@@ -421,6 +437,11 @@ namespace HackAssembler.AssemblerLibrary
 
             lookupDict.Add("SCREEN", "16384");
             lookupDict.Add("KBD", "24576");
+            lookupDict.Add("SP", "0");
+            lookupDict.Add("LCL", "1");
+            lookupDict.Add("ARG", "2");
+            lookupDict.Add("THIS", "3");
+            lookupDict.Add("THAT", "4");
 
             return lookupDict;
         }

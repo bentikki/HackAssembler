@@ -18,6 +18,7 @@ namespace HackAssembler
             {
 
                 Console.WriteLine("Input ASM files found:");
+                // Go through all available files.
                 foreach (var file in assembler.AvailableInputFiles)
                 {
                     Console.WriteLine(file.Name);
@@ -36,5 +37,11 @@ namespace HackAssembler
                 Console.ReadKey();
             }
         }
+
+        public static async void DisplayMessage(string message)
+        {
+            Console.WriteLine(message);
+        }
+
     }
 }
